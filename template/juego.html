@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hitster Clone - Juego</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #111;
+            color: white;
+            text-align: center;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        /* PANTALLA DE CARGA */
+        #pantalla-carga {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: #0f0f0f;
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .barra-progreso-contenedor {
+            width: 80%;
+            max-width: 300px;
+            height: 10px;
+            background: #333;
+            border-radius: 10px;
+            margin-top: 20px;
+            overflow: hidden;
+        }
+
+        .barra-progreso-relleno {
+            height: 100%;
+            width: 0%;
+            background: #00ff88;
+            transition: width 0.2s;
+            box-shadow: 0 0 10px #00ff88;
+        }
+
+        /* ESTILOS DEL JUEGO */
+        .contador {
+            background: #333;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            margin-bottom: 20px;
+            border: 1px solid #555;
+        }
+
+        .card {
+            background: #222;
+            border-radius: 15px;
+            padding: 20px;
+            width: 90%;
+            max-width: 400px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            display: none; 
+            animation: fadeIn 0.4s ease;
+        }
+
+        .card.activa { display: block; }
+
+        .disco-wrapper {
+            position: relative;
+            width: 250px;
+            height: 250px;
+            margin: 0 auto 20px auto;
+        }
+
+        .disco {
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            background-size: cover;
+            background-position: center;
+            animation: girar 4s linear infinite;
+            box-shadow: 0 0 20px rgba(255, 255, 255, 0.1);
+            filter: blur(20px);
+            transition: filter 0.5s ease;
+        }
+
+        .centro-disco {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            width: 40px; height: 40px;
+            background: #111;
+            border-radius: 50%;
+            border: 2px solid #555;
+        }
+
+        .info-revelada { display: none; margin-top: 15px; }
+
+        h2 { margin: 10px 0 5px 0; color: #ff0055; }
+        h3 { margin: 0 0 10px 0; font-weight: 300; color: #ccc; }
+        .year { font-size: 2em; font-weight: bold; color: #00ff88; margin: 10px 0; }
+
+        button {
+            background: #ff0055;
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            font-size: 1.1em;
+            border-radius: 25px;
+            cursor: pointer;
+            margin-top: 20px;
+            width: 100%;
+            transition: 0.2s;
+        }
+        button:active { transform: scale(0.98); }
+        button.siguiente { background: #0077ff; margin-top: 10px; display: none; }
+
+        #pantalla-final { display: none; text-align: center; }
+
+        .badge-tiempo {
+            position: absolute;
+            top: 10px; right: 10px;
+            background: rgba(0,0,0,0.7);
+            padding: 5px 10px;
+            border-radius: 10px;
+            font-size: 0.7em;
+            color: #aaa;
+            transition: 0.3s;
+        }
+        
+        .badge-unlocked {
+            color: #00ff88;
+            border: 1px solid #00ff88;
+            background: rgba(0, 50, 20, 0.8);
+        }
+
+        @keyframes girar { 100% { transform: rotate(360deg); } }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body>
+
+    <div id="pantalla-carga">
+        <h2 style="color: #00ff88;">PREPARANDO TEMAZOS...</h2>
+        <div class="barra-progreso-contenedor">
+            <div class="barra-progreso-relleno" id="barra-fill"></div>
+        </div>
+        <p id="texto-progreso" style="color: #666; margin-top: 10px;">Iniciando...</p>
+    </div>
+
+    <div id="interfaz-juego" style="display:none; width: 100%; flex-direction: column; align-items: center;">
+        <div class="contador">
+            Ronda <span id="ronda-actual">1</span> de <span id="total-rondas">0</span>
+        </div>
+        <div id="contenedor-tarjetas"></div>
+    </div>
+
+    <div id="pantalla-final">
+        <h1>¡Partida Finalizada! 🏆</h1>
+        <p>Has recorrido toda la lista.</p>
+        <a href="/" style="color: #00ff88; text-decoration: none; font-size: 1.2em; border: 1px solid #00ff88; padding: 10px 20px; border-radius: 20px;">Volver al Menú</a>
+    </div>
+
+    <script>
+        const listaCruda = {{ canciones | tojson | safe }};
+        const cancionesListas = [];
+        let indiceActual = 0;
+        const LIMITE_CORTO = 15; 
+
+        // --- SISTEMA DE CARGA HÍBRIDO ---
+        async function iniciarDescarga() {
+            const total = listaCruda.length;
+            const barra = document.getElementById('barra-fill');
+            const texto = document.getElementById('texto-progreso');
+            let procesadas = 0;
+
+            document.getElementById('total-rondas').innerText = total;
+
+            async function procesarCancion(item) {
+                try {
+                    // Intento 1: Descargar a RAM (Mejor rendimiento)
+                    const response = await fetch(item.preview);
+                    if (!response.ok) throw new Error("Fallo descarga");
+                    const blob = await response.blob();
+                    item.urlFinal = URL.createObjectURL(blob);
+                    item.tipo = "ram";
+                } catch (e) {
+                    // Intento 2: FALLBACK (Si falla descarga, usamos el link directo)
+                    // Esto evita que te quedes sin jugar si el wifi falla un microsegundo
+                    console.log("Usando streaming directo para:", item.titulo);
+                    item.urlFinal = item.preview; 
+                    item.tipo = "streaming";
+                } finally {
+                    // SIEMPRE la añadimos, nunca la tiramos
+                    cancionesListas.push(item);
+                    
+                    procesadas++;
+                    const porcentaje = (procesadas / total) * 100;
+                    barra.style.width = porcentaje + "%";
+                    texto.innerText = `${procesadas} / ${total}`;
+                    
+                    if (procesadas === total) finalizarCarga();
+                }
+            }
+
+            // Procesamos todas en paralelo (sin bloqueo de lotes para máxima velocidad)
+            // Al tener el fallback, no importa si algunas fallan el fetch
+            const promesas = listaCruda.map(procesarCancion);
+            await Promise.all(promesas);
+        }
+
+        function finalizarCarga() {
+            // Ordenamos visualmente si hiciera falta, aunque llegan en orden similar
+            document.getElementById('pantalla-carga').style.display = 'none';
+            document.getElementById('interfaz-juego').style.display = 'flex';
+            generarTarjetas();
+        }
+
+        function generarTarjetas() {
+            const contenedor = document.getElementById('contenedor-tarjetas');
+            
+            cancionesListas.forEach((c, index) => {
+                const card = document.createElement('div');
+                card.className = `card ${index === 0 ? 'activa' : ''}`; 
+                card.id = `card-${index}`;
+                
+                card.innerHTML = `
+                    <div class="disco-wrapper">
+                        <div class="badge-tiempo" id="badge-${index}">15 seg máx</div>
+                        <div class="disco" id="disco-${index}" style="background-image: url('${c.portada}');"></div>
+                        <div class="centro-disco"></div>
+                    </div>
+                    <div style="margin: 20px 0;">
+                        <audio id="audio-${index}" controls style="width: 100%;" 
+                            data-unlocked="false"
+                            onplay="animarDisco(${index}, true)" 
+                            onpause="animarDisco(${index}, false)"
+                            ontimeupdate="chequearTiempo(this)"
+                            onerror="gestionarErrorAudio(${index})">
+                            <source src="${c.urlFinal}" type="audio/mpeg">
+                        </audio>
+                        <p id="error-msg-${index}" style="display:none; color:red; font-size:0.8em;">⚠️ Audio no disponible</p>
+                    </div>
+                    <button class="btn-resolver" onclick="resolver(${index})">Resolver</button>
+                    <div class="info-revelada" id="info-${index}">
+                        <div class="year">${c.anyo}</div>
+                        <h2>${c.titulo}</h2>
+                        <h3>${c.artista}</h3>
+                        <button class="siguiente" onclick="siguiente(${index})">Siguiente ➡</button>
+                    </div>
+                `;
+                contenedor.appendChild(card);
+            });
+        }
+
+        function gestionarErrorAudio(id) {
+            // Si incluso el streaming falla, mostramos aviso pero dejamos seguir jugando
+            document.getElementById(`error-msg-${id}`).style.display = 'block';
+        }
+
+        function chequearTiempo(audioElement) {
+            if (audioElement.dataset.unlocked === "true") return;
+            if (audioElement.currentTime >= LIMITE_CORTO) {
+                audioElement.pause();
+            }
+        }
+
+        function animarDisco(id, girar) {
+            const disco = document.getElementById(`disco-${id}`);
+            disco.style.animationPlayState = girar ? 'running' : 'paused';
+        }
+
+        window.resolver = function(id) {
+            document.getElementById(`info-${id}`).style.display = 'block';
+            document.getElementById(`disco-${id}`).style.filter = 'none';
+            document.querySelector(`#card-${id} .btn-resolver`).style.display = 'none';
+            document.querySelector(`#card-${id} .siguiente`).style.display = 'inline-block';
+
+            const audio = document.getElementById(`audio-${id}`);
+            audio.dataset.unlocked = "true"; 
+            
+            const badge = document.getElementById(`badge-${id}`);
+            badge.innerText = "Audio Completo (30s)";
+            badge.classList.add("badge-unlocked");
+        };
+
+        window.siguiente = function(id) {
+            document.getElementById(`audio-${id}`).pause();
+            document.getElementById(`card-${id}`).classList.remove('activa');
+            indiceActual++;
+            if (indiceActual < cancionesListas.length) {
+                document.getElementById(`card-${indiceActual}`).classList.add('activa');
+                document.getElementById('ronda-actual').innerText = indiceActual + 1;
+            } else {
+                document.getElementById('interfaz-juego').style.display = 'none';
+                document.getElementById('pantalla-final').style.display = 'block';
+            }
+        };
+
+        document.querySelectorAll('.disco').forEach(d => d.style.animationPlayState = 'paused');
+        iniciarDescarga();
+    </script>
+</body>
+</html>
